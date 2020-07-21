@@ -4,11 +4,11 @@ from pydarknet import Detector, Image
 import cv2
 import re
 import numpy as np
-from camera.camera import Camera
+from camera.camera import Camera  # incorrect!!!!!!!!!!!!!!!!!
 
-'''
-参数整整
-'''
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+|                       参数调整区域                            |
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 enermy: int = 0  # 0:red, 1:blue
 cam: int = 0  # 0:two input videos, 1:one camera plugin, 2:two cameras plugin
 f_show: bool = True  # True: frame1, False: frame2
@@ -40,6 +40,8 @@ def init(frame1, frame2=None):
     message = message + "c: cancel\n"
     while True:
         boxtmp = cv2.selectROI('ROI_init', frame1, False)
+        if boxtmp == (0, 0, 0, 0):
+            break
         type = input(message)  # keyouhua
         if type in ['c', 'C']:
             break
@@ -68,6 +70,8 @@ def init(frame1, frame2=None):
         rec = []
         while True:
             boxtmp = cv2.selectROI('ROI_init', frame2, False)
+            if boxtmp == (0, 0, 0, 0):
+                break
             type = input(message)
             if type in ['c', 'C']:
                 break
@@ -133,12 +137,12 @@ def match_box(candidate, matcher, con=0.7, all=False):
         return index, nu
 
 
-def classify(results):
+def car_armor_classify(results):
     """
     match armor with car and classify enermy and friend
     :param results: raw output of Detector
     :return:
-
+    car: a list of car, return [] when the number of car equals to zero
     """
     car = []
     car_pos_mi = []
@@ -169,10 +173,32 @@ def classify(results):
     return car
 
 
+def set_value(value_index, value):
+    """
+    API for operator's control.
+    :param value_name: global variable in main.py
+    :param value: notuse2 value
+    :return:
+    flag: True indicates sucess while False means failure
+    """
+    global f_show
+    if value_index == 0:
+        f_show = value
+        return True
+    else:
+        return False
+
+
 if __name__ == "__main__":
-    net = Detector(bytes("cfg/yolov3-voc.cfg", encoding="utf-8"),
-                   bytes("weights/yolov3-voc_10000.weights", encoding="utf-8"), 0,
-                   bytes("cfg/voc.data", encoding="utf-8"))
+    net = Detector(bytes("model/1/yolov3.cfg", encoding="utf-8"),
+                   bytes("model/1/yolov3_35000.weights", encoding="utf-8"), 0,
+                   bytes("model/1/coco.data", encoding="utf-8"))
+    #net = Detector(bytes("model/notuse2/yolov3.cfg", encoding="utf-8"),
+    #               bytes("model/notuse2/yolov3_40000.weights", encoding="utf-8"), 0,
+    #               bytes("model/notuse2/voc.data", encoding="utf-8"))
+    #net = Detector(bytes("model/tmp/yolov3-voc.cfg", encoding="utf-8"),
+    #               bytes("model/tmp/yolov3-voc_50000.weights", encoding="utf-8"), 0,
+    #               bytes("model/tmp/voc.data", encoding="utf-8"))
 
     if cam == 0 or cam == 2:
         if cam == 0:
@@ -262,7 +288,7 @@ if __name__ == "__main__":
                     for i in index:
                         print("frame2 " + str(cache["rec2"][i]) + " detected enermy!")
             '''
-            cars = classify(results1)
+            cars = car_armor_classify(results1)
             for car in cars:
                 if enermy == 0 and 'blue' in car[4] or enermy == 1 and 'red' in car[4]:
                     continue
@@ -294,7 +320,7 @@ if __name__ == "__main__":
                                   (255, 0, 0))
                     cv2.putText(frame1, "car with " + cat, (int(x), int(y)), cv2.FONT_HERSHEY_COMPLEX,
                                 1, (255, 255, 0))
-            cars = classify(results2)
+            cars = car_armor_classify(results2)
             for car in cars:
                 if enermy == 0 and 'blue' in car[4] or enermy == 1 and 'red' in car[4]:
                     continue
@@ -335,12 +361,15 @@ if __name__ == "__main__":
             if k == 0xFF & ord("q"):
                 break
             elif k == 0xFF & ord("a"):
-                f_show = not f_show
-                print(f_show, not f_show)
+                set_value(0, not f_show)
+                #f_show = not f_show
             elif k == 0xFF & ord("p"):
                 cv2.waitKey(0)
-        cap1.release()
-        cap2.release()
+        if cam == 0:
+            cap1.release()
+            cap2.release()
+        else:
+            del cap1, cap2
 
     elif cam == 1:
         cap = cv2.VideoCapture(0)
