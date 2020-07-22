@@ -1,9 +1,12 @@
 import sys
-from Demo import Ui_MainWindow, identifier
+from datetime import datetime
+
+import cv2
+import time
 from PyQt5 import QtWidgets
 from PyQt5.QtGui import QImage, QPixmap
-import cv2, time
-from datetime import datetime
+
+from Demo import Ui_MainWindow, identifier
 
 """""""""""""""""""""""""""""""""""""""""""""""""""
 |identifier:3a879f86-dfde-45b0-90c4-73e14fd77fe8  |
@@ -123,7 +126,6 @@ class mywindow(QtWidgets.QMainWindow, Ui_MainWindow):  # 这个地方要注意Ui
         else:
             message = message.split("\n")
             message.remove("")
-            print(message)
             flag = True
             for s in message:
                 flag = flag and self.set_text(position, s)

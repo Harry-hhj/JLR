@@ -1,2 +1,4 @@
+PyQt5
+cv2
 numpy
 cython>=0.27
