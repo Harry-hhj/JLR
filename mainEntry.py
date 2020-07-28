@@ -34,6 +34,10 @@ class mywindow(QtWidgets.QMainWindow, Ui_MainWindow):  # 这个地方要注意Ui
 
     # 。。。加自己的函数等
     def btn1_on_clicked(self):
+        """
+        video recording
+        :return: True or False
+        """
         self.record_state = not self.record_state
         if not self.record_state:
             self.btn1.setText("开始录制")
