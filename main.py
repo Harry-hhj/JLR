@@ -19,6 +19,7 @@ cam: int = 0  # 0:two input videos, 1:one camera plugin, 2:two cameras plugin
 third_cam = "antimissile"  # "":no extra cam, "antimissile":反导, "lobshot":吊射
 f_show: bool = True  # True: frame1, False: frame2
 loc = {"base_b": [], "base_r": [], "watcher-b": [], "watcher-r": []}
+exit_signal = False
 
 battle_mode: bool = False  # automatically set some value, ready for battle #not implement yet
 
@@ -267,7 +268,7 @@ if __name__ == "__main__":
             cap1 = cv2.VideoCapture("testdata/test.mov")
             cap2 = cv2.VideoCapture("testdata/test.MOV")
             if third_cam == "antimissile":
-                cap3 = cv2.VideoCapture("")
+                cap3 = cv2.VideoCapture("testdata/feibiao.MOV")
         else:
             cap1 = Camera()
             cap2 = Camera()  # how to distinguish two cameras hasn't been tested!!*!!!!!!!
@@ -275,19 +276,42 @@ if __name__ == "__main__":
                 cap3 = Camera()
         r1, frame1 = cap1.read()
         r2, frame2 = cap2.read()
+        if third_cam == "antimissile":
+            r3_size = (960, 540)
+            r3, current_frame = cap3.read()
+            current_frame = cv2.resize(current_frame, r3_size)
+            previous_frame = current_frame
+            cv2.namedWindow('missile', cv2.WINDOW_NORMAL)
+            f = current_frame.copy()
+            missile_launcher = cv2.selectROI('missile', f, False)
+            cv2.rectangle(f, (int(missile_launcher[0]), int(missile_launcher[1])),
+                          (int(missile_launcher[0] + missile_launcher[2]),
+                           int(missile_launcher[1] + missile_launcher[3])), (0, 255, 0), 2)
+            verify = cv2.selectROI('missile', f, False)
+            if verify != (0, 0, 0, 0):
+                missile_launcher = verify
+                del verify
+            cv2.destroyWindow('missile')
+
+
+        #thread = threading.Thread(target=antimissile, args=(cap3,))
+        #thread.start()
         # intialize loc
         cache, size1, size2 = init(frame1, frame2)  # assert(size1==frame1.shape)
         cv2.namedWindow('show', cv2.WINDOW_NORMAL)
 
         tic = 0
-        while r1 and r2:
+        while True:
             t1 = time.time()
             r1, frame1 = cap1.read()
             r2, frame2 = cap2.read()
+            if frame1 is None or frame2 is None:
+                break
             # 预处理操作
             rgb1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
             rgb2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
             if time.time() - tic > 5 or len(trackers1) == 0 or len(trackers2) == 0:
+                #print("detect")
                 trackers1 = []
                 labels1 = []
                 trackers2 = []
@@ -447,7 +471,9 @@ if __name__ == "__main__":
                                       (255, 0, 0))
                         cv2.putText(frame2, "Car with " + cat, (int(x), int(y)), cv2.FONT_HERSHEY_COMPLEX,
                                     1, (255, 255, 0))
+                tic = time.time()
             else:
+                #print("genzong")
                 # 每一个追踪器都要进行更新
                 # toc = time.time()
                 for (t, l) in zip(trackers1, labels1):
@@ -480,7 +506,42 @@ if __name__ == "__main__":
                                   (0, 255, 0), 2)
                     cv2.putText(frame2, l, (startX, startY - 15),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 2)
-            print(time.time()-t1)
+            #print(time.time()-t1)
+            if third_cam == "antimissile" and current_frame is not None:
+                current_frame_gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
+                previous_frame_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
+                current_frame_gray = cv2.GaussianBlur(current_frame_gray, (7, 7), 0)
+                previous_frame_gray = cv2.GaussianBlur(previous_frame_gray, (7, 7), 0)
+
+                frame_diff = cv2.absdiff(current_frame_gray, previous_frame_gray)
+                _, frame_diff = cv2.threshold(frame_diff, 10, 255, cv2.THRESH_BINARY)
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+                frame_diff = cv2.erode(frame_diff, kernel)
+                frame_diff = cv2.dilate(frame_diff, kernel)
+                contours, _ = cv2.findContours(frame_diff.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                current_frame_copy = current_frame.copy()
+                cv2.rectangle(current_frame_copy, (int(missile_launcher[0]), int(missile_launcher[1])),
+                              (int(missile_launcher[0] + missile_launcher[2]),
+                               int(missile_launcher[1] + missile_launcher[3])), (0, 255, 0), 2)
+                for c in contours:
+                    if 100 < cv2.contourArea(c) < 40000:
+                        x, y, w, h = cv2.boundingRect(c)
+                        #cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
+                        if int(missile_launcher[0]) < x+w/2 < int(missile_launcher[0]+missile_launcher[2]) and int(missile_launcher[1]) < y+h/2 < int(missile_launcher[1]+missile_launcher[3]):
+                            cv2.putText(current_frame_copy, "detected missile!!!!!!!!!!!!!!!!!!!", (25, 25), cv2.FONT_HERSHEY_COMPLEX,
+                                        1, (255, 255, 0))
+                            cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
+                            myshow.set_text("alarm_location", "Missile detected!")
+                cv2.imshow('fgmask', current_frame_copy)
+
+                #cv2.imshow('frame diff ', frame_diff)
+
+                # cv2.moveWindow(cap, 40,30)
+
+                previous_frame = current_frame.copy()
+                ret, current_frame = cap3.read()
+                current_frame = cv2.resize(current_frame, (960, 540))
+
             if f_show:
                 cv2.imshow('show', frame1)
                 myshow.set_image(frame1, "main_demo")
@@ -489,8 +550,11 @@ if __name__ == "__main__":
                 cv2.imshow('show', frame2)
                 myshow.set_image(frame2, "main_demo")
                 myshow.set_image(frame1, "sub_demo1")
-            k = cv2.waitKey(1)
+            if third_cam is not None:
+                myshow.set_image(current_frame_copy, "sub_demo2")
+            k = cv2.waitKey(2)
             if k == 0xFF & ord("q"):
+                exit_signal = True
                 break
             elif k == 0xFF & ord("a"):
                 set_value(0, not f_show)
@@ -502,7 +566,6 @@ if __name__ == "__main__":
             cap2.release()
         else:
             del cap1, cap2  # need to be changed!!!!!!!!!!!!
-
     elif cam == 1:
         cap = cv2.VideoCapture(0)
     else:
