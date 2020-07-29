@@ -176,11 +176,14 @@ def car_armor_classify(results):
             s = str(cat.decode("utf-8"))
             if "red" in s:
                 s = "red"
+                car[idx][4] = s
             elif "blue" in s:
                 s = "blue"
+                car[idx][4] = s
             elif "grey" in s:
                 s = "grey"
-            car[idx][4] = s
+                if car[idx][4] == "":
+                    car[idx][4] = s
             continue
         if 'watcher' in str(cat.decode("utf-8")):
             continue
