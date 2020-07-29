@@ -17,11 +17,12 @@ from mainEntry import mywindow
 enermy: int = 0  # 0:red, 1:blue
 cam: int = 0  # 0:two input videos, 1:one camera plugin, 2:two cameras plugin
 third_cam = "antimissile"  # "":no extra cam, "antimissile":反导, "lobshot":吊射
-f_show: bool = True  # True: frame1, False: frame2
+f_show: int = 0  # 0: frame1, 1: frame2, 2: extra_frame
 loc = {"base_b": [], "base_r": [], "watcher-b": [], "watcher-r": []}
-exit_signal = False
 
-battle_mode: bool = False  # automatically set some value, ready for battle #not implement yet
+battle_mode: bool = True  # automatically set some value, ready for battle #not implement yet
+
+interval = 100
 
 
 def init(frame1, frame2=None):
@@ -218,7 +219,7 @@ def check_car(frame_current, frame_previous, cars):
     for i in range(len(cars)):
         car = cars[i]
         score = diff[int(car[0] - car[2] / 2):int(car[0] + car[2] / 2),
-                     int(car[1] - car[3] / 2):int(car[1] + car[3] / 2)].sum()
+                int(car[1] - car[3] / 2):int(car[1] + car[3] / 2)].sum()
         if score < car[2] * car[3] / 10:
             if car[4] is None:
                 cars.pop(i)
@@ -250,10 +251,10 @@ if __name__ == "__main__":
     net = Detector(bytes("model/1/yolov3.cfg", encoding="utf-8"),
                    bytes("model/1/yolov3_35000.weights", encoding="utf-8"), 0,
                    bytes("model/1/coco.data", encoding="utf-8"))
-    #net = Detector(bytes("model/notuse2/yolov3.cfg", encoding="utf-8"),
+    # net = Detector(bytes("model/notuse2/yolov3.cfg", encoding="utf-8"),
     #               bytes("model/notuse2/yolov3_40000.weights", encoding="utf-8"), 0,
     #               bytes("model/notuse2/voc.data", encoding="utf-8"))
-    #net = Detector(bytes("model/tmp/yolov3-voc.cfg", encoding="utf-8"),
+    # net = Detector(bytes("model/tmp/yolov3-voc.cfg", encoding="utf-8"),
     #               bytes("model/tmp/yolov3-voc_50000.weights", encoding="utf-8"), 0,
     #               bytes("model/tmp/voc.data", encoding="utf-8"))
 
@@ -263,10 +264,28 @@ if __name__ == "__main__":
     trackers2 = []
     labels2 = []
 
+    # tracker_types = ['BOOSTING', 'MIL', 'KCF', 'TLD', 'MEDIANFLOW', 'GOTURN', 'MOSSE']  # 20 16 100 5 75 / 500
+    # tracker_type = tracker_types[2]
+    # (major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')
+    # if tracker_type == 'BOOSTING':
+    #    tracker = cv2.TrackerBoosting_create()
+    # if tracker_type == 'MIL':
+    #    tracker = cv2.TrackerMIL_create()
+    # if tracker_type == 'KCF':
+    #    tracker = cv2.TrackerKCF_create()
+    # if tracker_type == 'TLD':
+    #    tracker = cv2.TrackerTLD_create()
+    # if tracker_type == 'MEDIANFLOW':
+    #    tracker = cv2.TrackerMedianFlow_create()
+    # if tracker_type == 'GOTURN':
+    #    tracker = cv2.TrackerGOTURN_create()
+    # if tracker_type == 'MOSSE':
+    #    tracker = cv2.TrackerMOSSE_create()
+
     if cam == 0 or cam == 2:
         if cam == 0:
-            cap1 = cv2.VideoCapture("testdata/test.mov")
-            cap2 = cv2.VideoCapture("testdata/test.MOV")
+            cap1 = cv2.VideoCapture("testdata/red.MOV")
+            cap2 = cv2.VideoCapture("testdata/blue.MOV")
             if third_cam == "antimissile":
                 cap3 = cv2.VideoCapture("testdata/feibiao.MOV")
         else:
@@ -274,6 +293,10 @@ if __name__ == "__main__":
             cap2 = Camera()  # how to distinguish two cameras hasn't been tested!!*!!!!!!!
             if third_cam == "antimissile":
                 cap3 = Camera()
+        for i in range(200):
+            cap1.read()
+        for i in range(100):
+            cap2.read()
         r1, frame1 = cap1.read()
         r2, frame2 = cap2.read()
         if third_cam == "antimissile":
@@ -292,14 +315,14 @@ if __name__ == "__main__":
                 missile_launcher = verify
                 del verify
             cv2.destroyWindow('missile')
+            r3_cnt = 0
 
-
-        #thread = threading.Thread(target=antimissile, args=(cap3,))
-        #thread.start()
         # intialize loc
         cache, size1, size2 = init(frame1, frame2)  # assert(size1==frame1.shape)
         cv2.namedWindow('show', cv2.WINDOW_NORMAL)
 
+        print("="*30)
+        print("[INFO] Starting.")
         tic = 0
         while True:
             t1 = time.time()
@@ -311,7 +334,7 @@ if __name__ == "__main__":
             rgb1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
             rgb2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
             if time.time() - tic > 5 or len(trackers1) == 0 or len(trackers2) == 0:
-                #print("detect")
+                # print("detect")
                 trackers1 = []
                 labels1 = []
                 trackers2 = []
@@ -400,7 +423,7 @@ if __name__ == "__main__":
                     trackers1.append(t)
                     if enermy == 0 and 'blue' in car[4] or enermy == 1 and 'red' in car[4]:
                         continue
-                    #x, y, w, h, cat = car
+                    # x, y, w, h, cat = car
                     mi_ = [[int(x + w / 2)], [int(y + h / 2)]]
                     ma_ = [[int(x - w / 2)], [int(y - h / 2)]]
                     mi_ = np.array(mi_)
@@ -443,7 +466,7 @@ if __name__ == "__main__":
                     trackers2.append(t)
                     if enermy == 0 and 'blue' in car[4] or enermy == 1 and 'red' in car[4]:
                         continue
-                    #x, y, w, h, cat = car
+                    # x, y, w, h, cat = car
                     mi_ = [[int(x + w / 2)], [int(y + h / 2)]]
                     ma_ = [[int(x - w / 2)], [int(y - h / 2)]]
                     mi_ = np.array(mi_)
@@ -473,7 +496,7 @@ if __name__ == "__main__":
                                     1, (255, 255, 0))
                 tic = time.time()
             else:
-                #print("genzong")
+                # print("genzong")
                 # 每一个追踪器都要进行更新
                 # toc = time.time()
                 for (t, l) in zip(trackers1, labels1):
@@ -506,59 +529,92 @@ if __name__ == "__main__":
                                   (0, 255, 0), 2)
                     cv2.putText(frame2, l, (startX, startY - 15),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 2)
-            #print(time.time()-t1)
+            if not battle_mode:
+                print(time.time()-t1)
             if third_cam == "antimissile" and current_frame is not None:
-                current_frame_gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
-                previous_frame_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
-                current_frame_gray = cv2.GaussianBlur(current_frame_gray, (7, 7), 0)
-                previous_frame_gray = cv2.GaussianBlur(previous_frame_gray, (7, 7), 0)
-
-                frame_diff = cv2.absdiff(current_frame_gray, previous_frame_gray)
-                _, frame_diff = cv2.threshold(frame_diff, 10, 255, cv2.THRESH_BINARY)
-                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-                frame_diff = cv2.erode(frame_diff, kernel)
-                frame_diff = cv2.dilate(frame_diff, kernel)
-                contours, _ = cv2.findContours(frame_diff.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                current_frame = cv2.resize(current_frame, (960, 540))
                 current_frame_copy = current_frame.copy()
-                cv2.rectangle(current_frame_copy, (int(missile_launcher[0]), int(missile_launcher[1])),
-                              (int(missile_launcher[0] + missile_launcher[2]),
-                               int(missile_launcher[1] + missile_launcher[3])), (0, 255, 0), 2)
-                for c in contours:
-                    if 100 < cv2.contourArea(c) < 40000:
-                        x, y, w, h = cv2.boundingRect(c)
-                        #cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
-                        if int(missile_launcher[0]) < x+w/2 < int(missile_launcher[0]+missile_launcher[2]) and int(missile_launcher[1]) < y+h/2 < int(missile_launcher[1]+missile_launcher[3]):
-                            cv2.putText(current_frame_copy, "detected missile!!!!!!!!!!!!!!!!!!!", (25, 25), cv2.FONT_HERSHEY_COMPLEX,
-                                        1, (255, 255, 0))
-                            cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
-                            myshow.set_text("alarm_location", "Missile detected!")
-                cv2.imshow('fgmask', current_frame_copy)
+                ###### color threshold liangdu
+                # if r3_cnt <= 2:
+                if 1:
+                    current_frame_gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
+                    previous_frame_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
+                    current_frame_gray = cv2.GaussianBlur(current_frame_gray, (7, 7), 0)
+                    previous_frame_gray = cv2.GaussianBlur(previous_frame_gray, (7, 7), 0)
 
-                #cv2.imshow('frame diff ', frame_diff)
+                    frame_diff = cv2.absdiff(current_frame_gray, previous_frame_gray)
+                    _, frame_diff = cv2.threshold(frame_diff, 10, 255, cv2.THRESH_BINARY)
+                    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+                    frame_diff = cv2.erode(frame_diff, kernel)
+                    frame_diff = cv2.dilate(frame_diff, kernel)
+                    contours, _ = cv2.findContours(frame_diff.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    cv2.rectangle(current_frame_copy, (int(missile_launcher[0]), int(missile_launcher[1])),
+                                  (int(missile_launcher[0] + missile_launcher[2]),
+                                   int(missile_launcher[1] + missile_launcher[3])), (0, 255, 0), 2)
+                    for c in contours:
+                        if 100 < cv2.contourArea(c) < 40000:
+                            x, y, w, h = cv2.boundingRect(c)
+                            # cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
+                            if int(missile_launcher[0]) < x + w / 2 < int(
+                                    missile_launcher[0] + missile_launcher[2]) and int(
+                                missile_launcher[1]) < y + h / 2 < int(missile_launcher[1] + missile_launcher[3]):
+                                cv2.putText(current_frame_copy, "detected missile!!", (25, 25),
+                                            cv2.FONT_HERSHEY_COMPLEX,
+                                            1, (255, 255, 0))
+                                cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
+                                myshow.set_text("alarm_location", "Missile detected!")
+                                # r3_cnt += 1
+                                # if r3_cnt == 3:
+                                #    ok = tracker.init(current_frame, (x, y, w, h))
+                # else:
+                #    ok, bbox = tracker.update(current_frame)
+                #    if ok:
+                #        # Tracking success
+                #        p1 = (int(bbox[0]), int(bbox[1]))
+                #        p2 = (int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3]))
+                #        cv2.rectangle(current_frame_copy, p1, p2, (255, 0, 0), 2, 1)
+                #    else:
+                #        # Tracking failure
+                #        cv2.putText(current_frame, "Tracking failure detected", (100, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.75,
+                #                    (0, 0, 255), 2)
+                if not battle_mode:
+                    cv2.imshow('fgmask', current_frame_copy)
+                    cv2.imshow('frame diff ', frame_diff)
 
                 # cv2.moveWindow(cap, 40,30)
 
                 previous_frame = current_frame.copy()
                 ret, current_frame = cap3.read()
-                current_frame = cv2.resize(current_frame, (960, 540))
 
-            if f_show:
-                cv2.imshow('show', frame1)
+            if f_show == 0:
+                if not battle_mode:
+                    cv2.imshow('show', frame1)
                 myshow.set_image(frame1, "main_demo")
                 myshow.set_image(frame2, "sub_demo1")
-            else:
-                cv2.imshow('show', frame2)
+            elif f_show == 1:
+                if not battle_mode:
+                    cv2.imshow('show', frame2)
                 myshow.set_image(frame2, "main_demo")
                 myshow.set_image(frame1, "sub_demo1")
+            elif f_show == 2:
+                myshow.set_image(frame1, "sub_demo1")
+                myshow.set_image(frame2, "sub_demo2")
             if third_cam is not None:
-                myshow.set_image(current_frame_copy, "sub_demo2")
-            k = cv2.waitKey(2)
+                if f_show != 2:
+                    myshow.set_image(current_frame_copy, "sub_demo2")
+                else:
+                    if not battle_mode:
+                        cv2.imshow('show', current_frame_copy)
+                    myshow.set_image(current_frame_copy, "main_demo")
+            k = cv2.waitKey(100)
             if k == 0xFF & ord("q"):
-                exit_signal = True
                 break
             elif k == 0xFF & ord("a"):
-                set_value(0, not f_show)
-                #f_show = not f_show
+                set_value(0, (f_show + 1) % 3)
+                if f_show+1 == 3:                     ##### paishipinyong
+                    interval = 100
+                else:
+                    interval = 1
             elif k == 0xFF & ord("p"):
                 cv2.waitKey(0)
         if cam == 0:

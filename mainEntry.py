@@ -28,9 +28,9 @@ class mywindow(QtWidgets.QMainWindow, Ui_MainWindow):  # 这个地方要注意Ui
         self.set_text("feedback", "intializing...")
         self.record_state = False  # 0:开始 1:停止
         self.btn1.setText("开始录制")
-        self.btn2.setText("无用")
-        self.btn3.setText("无用")
-        self.btn4.setText("无用")
+        self.btn2.setText("备用")
+        self.btn3.setText("备用")
+        self.btn4.setText("备用")
 
     # 。。。加自己的函数等
     def btn1_on_clicked(self):
@@ -119,7 +119,7 @@ class mywindow(QtWidgets.QMainWindow, Ui_MainWindow):  # 这个地方要注意Ui
             elif position == "message_box":
                 self.message_box.setText(message)
             elif position == "alarm_location":
-                if len(self.alarm_location_message_box) >= 20:
+                if len(self.alarm_location_message_box) >= 25:
                     self.alarm_location_message_box.pop(0)
                 self.alarm_location_message_box.append(message)
                 message = "\n".join(self.alarm_location_message_box)
