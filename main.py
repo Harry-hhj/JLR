@@ -7,7 +7,7 @@ import re
 import numpy as np
 import dlib
 from PyQt5 import QtWidgets
-from camera.camera import HT_Camera  # TODO:incorrect!!!!!!!!!!!!!!!!!
+from camera.camera import HT_Camera
 import threading
 from queue import Queue
 
@@ -22,7 +22,7 @@ third_cam = "antimissile"  # "":no extra cam, "antimissile":反导, "lobshot":�
 third_cam_type = ""
 f_show: int = 0  # 0: frame1, 1: frame2, 2: extra_frame
 loc = {"base_b": [], "base_r": [], "watcher-b": [], "watcher-r": []}
-exit_signal = False
+communication_queue = Queue()
 
 battle_mode: bool = False  # automatically set some value, ready for battle #not implement yet
 
@@ -380,10 +380,6 @@ if __name__ == "__main__":
                 dark_frame = Image(frame2)
                 results2 = net.detect(dark_frame)
                 del dark_frame
-                if battle_mode:
-                    pass
-                else:
-                    pass
 
                 assert (size1 == frame1.shape)
                 assert (size2 == frame2.shape)
@@ -566,7 +562,8 @@ if __name__ == "__main__":
                     cv2.putText(frame2, l, (startX, startY - 15),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 2)
             if not battle_mode:
-                print(1/(time.time()-t1))
+                fps = 1/(time.time()-t1)
+                print(fps)
                 # cv2.moveWindow(cap, 40,30)
 
             if f_show == 0:
