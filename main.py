@@ -7,7 +7,8 @@ import re
 import numpy as np
 import dlib
 from PyQt5 import QtWidgets
-from camera.camera import Camera  # TODO:incorrect!!!!!!!!!!!!!!!!!
+from camera.camera import HT_Camera  # TODO:incorrect!!!!!!!!!!!!!!!!!
+import threading
 from queue import Queue
 
 from mainEntry import mywindow
@@ -17,11 +18,13 @@ from mainEntry import mywindow
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 enermy: int = 0  # 0:red, 1:blue
 cam: int = 0  # 0:two input videos, 1:one camera plugin, 2:two cameras plugin
-third_cam = ""  # "":no extra cam, "antimissile":反导, "lobshot":吊射
+third_cam = "antimissile"  # "":no extra cam, "antimissile":反导, "lobshot":吊射
+third_cam_type = ""
 f_show: int = 0  # 0: frame1, 1: frame2, 2: extra_frame
 loc = {"base_b": [], "base_r": [], "watcher-b": [], "watcher-r": []}
+exit_signal = False
 
-battle_mode: bool = False # automatically set some value, ready for battle #not implement yet
+battle_mode: bool = False  # automatically set some value, ready for battle #not implement yet
 
 
 def init(frame1, frame2=None):
@@ -244,11 +247,59 @@ def set_value(value_index, value):
         return False
 
 
+def missile_detection(cap, size, missile_launcher, myshow):
+    while True:
+        _, current_frame = cap.read()
+        if current_frame is None:
+            break
+        current_frame = cv2.resize(current_frame, size)
+        current_frame_copy = current_frame.copy()
+        # TODO: color threshold liangdu
+        # TODO: genzong
+        if 1:
+            current_frame_gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
+            previous_frame_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
+            current_frame_gray = cv2.GaussianBlur(current_frame_gray, (7, 7), 0)
+            previous_frame_gray = cv2.GaussianBlur(previous_frame_gray, (7, 7), 0)
+
+            frame_diff = cv2.absdiff(current_frame_gray, previous_frame_gray)
+            _, frame_diff = cv2.threshold(frame_diff, 10, 255, cv2.THRESH_BINARY)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+            frame_diff = cv2.erode(frame_diff, kernel)
+            frame_diff = cv2.dilate(frame_diff, kernel)
+            contours, _ = cv2.findContours(frame_diff.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.rectangle(current_frame_copy, (int(missile_launcher[0]), int(missile_launcher[1])),
+                          (int(missile_launcher[0] + missile_launcher[2]),
+                           int(missile_launcher[1] + missile_launcher[3])), (0, 255, 0), 2)
+            for c in contours:
+                if 100 < cv2.contourArea(c) < 40000:
+                    x, y, w, h = cv2.boundingRect(c)
+                    # cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
+                    if int(missile_launcher[0]) < x + w / 2 < int(
+                            missile_launcher[0] + missile_launcher[2]) and int(
+                        missile_launcher[1]) < y + h / 2 < int(missile_launcher[1] + missile_launcher[3]):
+                        cv2.putText(current_frame_copy, "detected missile!!", (25, 25),
+                                    cv2.FONT_HERSHEY_COMPLEX,
+                                    1, (255, 255, 0))
+                        cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
+                        myshow.set_text("alarm_location", "Missile detected!")
+        if not battle_mode:
+            cv2.imshow('fgmask', current_frame_copy)
+            cv2.imshow('frame diff ', frame_diff)
+        if f_show != 2:
+            myshow.set_image(current_frame_copy, "sub_demo2")
+        else:
+            if not battle_mode:
+                cv2.imshow('show', current_frame_copy)
+            myshow.set_image(current_frame_copy, "main_demo")
+
+
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     myshow = mywindow()
     # 初始化UI界面并展示
     myshow.show()
+
     print("[INFO] loading model...")
     net = Detector(bytes("model/1/yolov3.cfg", encoding="utf-8"),
                    bytes("model/1/yolov3_35000.weights", encoding="utf-8"), 0,
@@ -273,13 +324,15 @@ if __name__ == "__main__":
             if third_cam == "antimissile":
                 cap3 = cv2.VideoCapture("testdata/feibiao.MOV")
         else:
-            cap1 = Camera()
-            cap2 = Camera()  #TODO: how to distinguish two cameras hasn't been tested!!*!!!!!!!
+            cap1 = HT_Camera()
+            cap2 = HT_Camera()  # TODO: how to distinguish two cameras hasn't been tested!!*!!!!!!!
             if third_cam == "antimissile":
-                cap3 = Camera()
+                cap3 = HT_Camera()
         r1, frame1 = cap1.read()
         r2, frame2 = cap2.read()
+
         if third_cam == "antimissile":
+            cap3 = cv2.VideoCapture("testdata/feibiao.MOV")
             r3_size = (960, 540)
             r3, current_frame = cap3.read()
             current_frame = cv2.resize(current_frame, r3_size)
@@ -295,11 +348,14 @@ if __name__ == "__main__":
                 missile_launcher = verify
                 del verify
             cv2.destroyWindow('missile')
-            r3_cnt = 0
+
+            missile = threading.Thread(target=missile_detection, args=(cap3, r3_size, missile_launcher, myshow))
+            missile.start()
 
         # intialize loc
         cache, size1, size2 = init(frame1, frame2)  # assert(size1==frame1.shape)
         cv2.namedWindow('show', cv2.WINDOW_NORMAL)
+
 
         print("="*30)
         print("[INFO] Starting.")
@@ -511,46 +567,7 @@ if __name__ == "__main__":
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 2)
             if not battle_mode:
                 print(1/(time.time()-t1))
-            if third_cam == "antimissile" and current_frame is not None:
-                current_frame = cv2.resize(current_frame, (960, 540))
-                current_frame_copy = current_frame.copy()
-                ###### color threshold liangdu
-                # if r3_cnt <= 2:
-                if 1:
-                    current_frame_gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
-                    previous_frame_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
-                    current_frame_gray = cv2.GaussianBlur(current_frame_gray, (7, 7), 0)
-                    previous_frame_gray = cv2.GaussianBlur(previous_frame_gray, (7, 7), 0)
-
-                    frame_diff = cv2.absdiff(current_frame_gray, previous_frame_gray)
-                    _, frame_diff = cv2.threshold(frame_diff, 10, 255, cv2.THRESH_BINARY)
-                    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-                    frame_diff = cv2.erode(frame_diff, kernel)
-                    frame_diff = cv2.dilate(frame_diff, kernel)
-                    contours, _ = cv2.findContours(frame_diff.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    cv2.rectangle(current_frame_copy, (int(missile_launcher[0]), int(missile_launcher[1])),
-                                  (int(missile_launcher[0] + missile_launcher[2]),
-                                   int(missile_launcher[1] + missile_launcher[3])), (0, 255, 0), 2)
-                    for c in contours:
-                        if 100 < cv2.contourArea(c) < 40000:
-                            x, y, w, h = cv2.boundingRect(c)
-                            # cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
-                            if int(missile_launcher[0]) < x + w / 2 < int(
-                                    missile_launcher[0] + missile_launcher[2]) and int(
-                                missile_launcher[1]) < y + h / 2 < int(missile_launcher[1] + missile_launcher[3]):
-                                cv2.putText(current_frame_copy, "detected missile!!", (25, 25),
-                                            cv2.FONT_HERSHEY_COMPLEX,
-                                            1, (255, 255, 0))
-                                cv2.rectangle(current_frame_copy, (x, y), (x + w, y + h), (0, 0, 255))
-                                myshow.set_text("alarm_location", "Missile detected!")
-                if not battle_mode:
-                    cv2.imshow('fgmask', current_frame_copy)
-                    cv2.imshow('frame diff ', frame_diff)
-
                 # cv2.moveWindow(cap, 40,30)
-
-                previous_frame = current_frame.copy()
-                ret, current_frame = cap3.read()
 
             if f_show == 0:
                 if not battle_mode:
@@ -565,14 +582,7 @@ if __name__ == "__main__":
             elif f_show == 2:
                 myshow.set_image(frame1, "sub_demo1")
                 myshow.set_image(frame2, "sub_demo2")
-            if third_cam != "":
-                if f_show != 2:
-                    myshow.set_image(current_frame_copy, "sub_demo2")
-                else:
-                    if not battle_mode:
-                        cv2.imshow('show', current_frame_copy)
-                    myshow.set_image(current_frame_copy, "main_demo")
-            k = cv2.waitKey(100)
+            k = cv2.waitKey(10)
             if k == 0xFF & ord("q"):
                 break
             elif k == 0xFF & ord("a"):
@@ -583,7 +593,7 @@ if __name__ == "__main__":
             cap1.release()
             cap2.release()
         else:
-            del cap1, cap2  #TODO: need to be changed!!!!!!!!!!!!
+            del cap1, cap2  # TODO: need to be changed!!!!!!!!!!!!
     elif cam == 1:
         cap = cv2.VideoCapture(0)
     else:
