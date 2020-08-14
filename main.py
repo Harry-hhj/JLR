@@ -320,7 +320,7 @@ if __name__ == "__main__":
     if cam == 0 or cam == 2:
         if cam == 0:
             cap1 = cv2.VideoCapture("testdata/red.MOV")
-            cap2 = cv2.VideoCapture("testdata/blue.MOV")
+            cap2 = cv2.VideoCapture("testdata/b.MOV")
             if third_cam == "antimissile":
                 cap3 = cv2.VideoCapture("testdata/feibiao.MOV")
         else:
