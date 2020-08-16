@@ -24,7 +24,7 @@ f_show: int = 0  # 0: frame1, 1: frame2, 2: extra_frame
 loc = {"base_b": [], "base_r": [], "watcher-b": [], "watcher-r": []}
 communication_queue = Queue()
 
-battle_mode: bool = False  # automatically set some value, ready for battle #not implement yet
+battle_mode: bool = False  # TODO: automatically set some value, ready for battle #not implement yet
 
 
 def init(frame1, frame2=None):
@@ -150,7 +150,7 @@ def match_box(candidate, matcher, all=False, con=0.7):
         return index, score
 
 
-def car_armor_classify(results):
+def car_armor_classify(results, frame):
     """
     match armor with car and classify enermy and friend
     :param results: raw output of Detector
@@ -167,6 +167,7 @@ def car_armor_classify(results):
             car.append([bounds[0], bounds[1], bounds[2], bounds[3], ""])
     if len(car) == 0:
         return car
+    flag = [False]*len(car)
     car_pos_mi = np.array(car_pos_mi).T
     car_pos_ma = np.array(car_pos_ma).T
     # print("car_pos_mi.ndim:", car_pos_mi.ndim)
@@ -186,11 +187,36 @@ def car_armor_classify(results):
                 s = "grey"
                 if car[idx][4] == "":
                     car[idx][4] = s
+            flag[idx] = True
             continue
         if 'watcher' in str(cat.decode("utf-8")):
             continue
         if 'base' in str(cat.decode("utf-8")):
             pass
+    for i in range(len(car)):
+        if flag[i]:
+            continue
+        tmp = frame[int(car[i][1]):int(car[i][1]+car[i][3]/2), int(car[i][0]-car[i][2]/2):int(car[i][0]+car[i][2]/2)]
+        frameBGR = cv2.GaussianBlur(tmp, (7, 7), 0)
+        tmpHSV = cv2.cvtColor(frameBGR, cv2.COLOR_BGR2HSV)
+        colorLow = np.array([97, 79, 126])
+        colorHigh = np.array([125, 255, 255])
+        mask = cv2.inRange(tmpHSV, colorLow, colorHigh)
+        kernal = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernal)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernal)
+        result = cv2.bitwise_and(tmp, tmp, mask=mask)
+        cv2.imshow('test1', result)
+        colorLow = np.array([145, 49, 63])
+        colorHigh = np.array([186, 252, 255])
+        mask = cv2.inRange(tmpHSV, colorLow, colorHigh)
+        kernal = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernal)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernal)
+        result = cv2.bitwise_and(tmp, tmp, mask=mask)
+        cv2.imshow('test2', result)
+        cv2.waitKey(0)
+        # TODO:
     del car_pos_mi
     del car_pos_ma
     return car
@@ -249,18 +275,23 @@ def set_value(value_index, value):
 
 def missile_detection(cap, size, missile_launcher, myshow):
     while True:
+        _, previous_frame = cap.read()
+        if previous_frame is None:
+            break
         _, current_frame = cap.read()
         if current_frame is None:
             break
+        previous_frame = cv2.resize(previous_frame, size)
         current_frame = cv2.resize(current_frame, size)
         current_frame_copy = current_frame.copy()
-        # TODO: color threshold liangdu
         # TODO: genzong
         if 1:
             current_frame_gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
             previous_frame_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
             current_frame_gray = cv2.GaussianBlur(current_frame_gray, (7, 7), 0)
             previous_frame_gray = cv2.GaussianBlur(previous_frame_gray, (7, 7), 0)
+            #current_frame_gray[current_frame_gray < 200] = 0   # TODO: color threshold liangdu
+            #previous_frame_gray[current_frame_gray < 200] = 0
 
             frame_diff = cv2.absdiff(current_frame_gray, previous_frame_gray)
             _, frame_diff = cv2.threshold(frame_diff, 10, 255, cv2.THRESH_BINARY)
@@ -319,13 +350,13 @@ if __name__ == "__main__":
 
     if cam == 0 or cam == 2:
         if cam == 0:
-            cap1 = cv2.VideoCapture("testdata/red.MOV")
-            cap2 = cv2.VideoCapture("testdata/b.MOV")
+            cap1 = cv2.VideoCapture("testdata/r.MOV")
+            cap2 = cv2.VideoCapture("testdata/r.MOV")
             if third_cam == "antimissile":
                 cap3 = cv2.VideoCapture("testdata/feibiao.MOV")
         else:
             cap1 = HT_Camera()
-            cap2 = HT_Camera()  # TODO: how to distinguish two cameras hasn't been tested!!*!!!!!!!
+            cap2 = HT_Camera()  # TODO: how to distinguish two cameras hasn't been tested!!!!!!!!!
             if third_cam == "antimissile":
                 cap3 = HT_Camera()
         r1, frame1 = cap1.read()
@@ -440,7 +471,7 @@ if __name__ == "__main__":
                         for i in index:
                             print("frame2 " + str(cache["rec2"][i]) + " detected enermy!")
                 '''
-                cars = car_armor_classify(results1)
+                cars = car_armor_classify(results1, frame1)
                 for car in cars:
                     x, y, w, h, cat = car
                     (startX, startY, endX, endY) = (int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2))
@@ -483,7 +514,7 @@ if __name__ == "__main__":
                                       (255, 0, 0))
                         cv2.putText(frame1, "Car with " + cat, (int(x), int(y)), cv2.FONT_HERSHEY_COMPLEX,
                                     1, (255, 255, 0))
-                cars = car_armor_classify(results2)
+                cars = car_armor_classify(results2, frame2)
                 for car in cars:
                     x, y, w, h, cat = car
                     (startX, startY, endX, endY) = (int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2))

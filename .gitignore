@@ -30,3 +30,4 @@ used
 
 test.*
 tools/camera_calibration_tool/chess/*.jpg
+*/Camera
