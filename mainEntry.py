@@ -105,6 +105,9 @@ class mywindow(QtWidgets.QMainWindow, Ui_MainWindow):  # 这个地方要注意Ui
         :return:
         True if operation succeeded.
         """
+        if position == "message_box":
+            self.message_box.setText(message)
+            return True
         if '\n' not in message:
             if len(message) > 50:
                 print("The message may not be fully displayed.")
@@ -116,8 +119,6 @@ class mywindow(QtWidgets.QMainWindow, Ui_MainWindow):  # 这个地方要注意Ui
                 self.feedback_message_box.append(message)
                 message = "\n".join(self.feedback_message_box)
                 self.feedback.setText(message)
-            elif position == "message_box":
-                self.message_box.setText(message)
             elif position == "alarm_location":
                 if len(self.alarm_location_message_box) >= 25:
                     self.alarm_location_message_box.pop(0)
@@ -129,7 +130,8 @@ class mywindow(QtWidgets.QMainWindow, Ui_MainWindow):  # 这个地方要注意Ui
             return True
         else:
             message = message.split("\n")
-            message.remove("")
+            if "" in message:
+                message.remove("")
             flag = True
             for s in message:
                 flag = flag and self.set_text(position, s)
@@ -139,7 +141,7 @@ class mywindow(QtWidgets.QMainWindow, Ui_MainWindow):  # 这个地方要注意Ui
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     myshow = mywindow()
-    myshow.set_text("alarm_location", "aaa")
+    myshow.set_text("message_box", "aaa")
     myshow.set_text("alarm_location", "bbb")
     myshow.set_text("alarm_location", "bbb")
     myshow.set_text("alarm_location", "bbb")
