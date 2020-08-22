@@ -21,6 +21,7 @@ pydarknet.html
 *.o
 *.so
 .env
+doc/
 
 testdata
 recording

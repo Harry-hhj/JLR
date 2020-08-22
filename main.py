@@ -6,7 +6,7 @@ import re
 import numpy as np
 import dlib
 from PyQt5 import QtWidgets
-from camera.camera import HT_Camera
+from camera import HT_Camera
 import threading
 import time
 
@@ -23,7 +23,7 @@ from serial_program import *
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 usb: str = '/dev/ttyUSB0'
 enermy: int = 0  # 0:red, 1:blue
-cam: int = 0  # 0:two input videos, 1:one camera plugin, 2:two cameras plugin
+cam: int = 2  # 0:two input videos, 1:one camera plugin, 2:two cameras plugin
 third_cam = "antimissile"  # "":no extra cam, "antimissile":反导, "lobshot":吊射
 third_cam_type = ""
 f_show: int = 0  # 0: frame1, 1: frame2, 2: extra_frame
@@ -175,7 +175,7 @@ def car_armor_classify(results, frame):
             car.append([bounds[0], bounds[1], bounds[2], bounds[3], ""])
     if len(car) == 0:
         return car
-    flag = [False]*len(car)
+    flag = [False] * len(car)
     car_pos_mi = np.array(car_pos_mi).T
     car_pos_ma = np.array(car_pos_ma).T
     # print("car_pos_mi.ndim:", car_pos_mi.ndim)
@@ -204,7 +204,8 @@ def car_armor_classify(results, frame):
     for i in range(len(car)):
         if flag[i]:
             continue
-        tmp = frame[int(car[i][1]):int(car[i][1]+car[i][3]/2), int(car[i][0]-car[i][2]/2):int(car[i][0]+car[i][2]/2)]
+        tmp = frame[int(car[i][1]):int(car[i][1] + car[i][3] / 2),
+              int(car[i][0] - car[i][2] / 2):int(car[i][0] + car[i][2] / 2)]
         frameBGR = cv2.GaussianBlur(tmp, (7, 7), 0)
         tmpHSV = cv2.cvtColor(frameBGR, cv2.COLOR_BGR2HSV)
         colorLow = np.array([97, 79, 126])
@@ -214,6 +215,9 @@ def car_armor_classify(results, frame):
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernal)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernal)
         result = cv2.bitwise_and(tmp, tmp, mask=mask)
+        result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+        result[result < 50] = 0
+        res1 = result.sum()
         cv2.imshow('test1', result)
         colorLow = np.array([145, 49, 63])
         colorHigh = np.array([186, 252, 255])
@@ -222,6 +226,15 @@ def car_armor_classify(results, frame):
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernal)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernal)
         result = cv2.bitwise_and(tmp, tmp, mask=mask)
+        result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+        result[result < 50] = 0
+        res2 = result.sum()
+        if res1 < 30 and res2 < 30:
+            car[i][4] = 'grey'
+        elif res1 > 30:
+            car[i][4] = 'red'
+        else:
+            car[i][4] = 'blue'
         cv2.imshow('test2', result)
         cv2.waitKey(0)
         # TODO:
@@ -281,14 +294,23 @@ def set_value(value_index, value):
         return False
 
 
-def missile_detection(cap, size, missile_launcher, myshow):
+def missile_detection(cap, size, missile_launcher, myshow, writer=None):
+    _, current_frame = cap.read()
+    if current_frame is None:
+        if cam == 0:
+            return
+        else:
+            while current_frame is None:
+                _, current_frame = cap.read()
     while True:
-        _, previous_frame = cap.read()
-        if previous_frame is None:
-            break
+        previous_frame = current_frame
         _, current_frame = cap.read()
         if current_frame is None:
-            break
+            if cam == 0:
+                break
+            else:
+                while previous_frame is None:
+                    _, previous_frame = cap.read()
         previous_frame = cv2.resize(previous_frame, size)
         current_frame = cv2.resize(current_frame, size)
         current_frame_copy = current_frame.copy()
@@ -298,8 +320,8 @@ def missile_detection(cap, size, missile_launcher, myshow):
             previous_frame_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
             current_frame_gray = cv2.GaussianBlur(current_frame_gray, (7, 7), 0)
             previous_frame_gray = cv2.GaussianBlur(previous_frame_gray, (7, 7), 0)
-            #current_frame_gray[current_frame_gray < 200] = 0   # TODO: color threshold liangdu
-            #previous_frame_gray[current_frame_gray < 200] = 0
+            # current_frame_gray[current_frame_gray < 200] = 0   # TODO: color threshold liangdu
+            # previous_frame_gray[current_frame_gray < 200] = 0
 
             frame_diff = cv2.absdiff(current_frame_gray, previous_frame_gray)
             _, frame_diff = cv2.threshold(frame_diff, 10, 255, cv2.THRESH_BINARY)
@@ -331,30 +353,41 @@ def missile_detection(cap, size, missile_launcher, myshow):
             if not battle_mode:
                 cv2.imshow('show', current_frame_copy)
             myshow.set_image(current_frame_copy, "main_demo")
+        if recording_state and writer is not None:
+            writer.write(current_frame)
+
+
+def on_EVENT_LBUTTONDOWN(event, x, y, flags, param):
+    global xy_split, img_split, split_flag
+    if event == cv2.EVENT_LBUTTONDOWN:
+        xy = '%d, %d' % (x, y)
+        xy_split = (x, y)
+        cv2.circle(img_split, (x, y), 1, (255, 0, 0), thickness = -1)
+        cv2.putText(img_split, xy, (x, y), cv2.FONT_HERSHEY_PLAIN,
+                    1.0, (0,0,0), thickness = 1)
+        split_flag = True
 
 
 if __name__ == "__main__":
-
-    password = 'radar'
-    ch = pexpect.spawn('sudo chmod 777 {}'.format(usb))
-    ch.sendline(password)
-    print('set password ok')
-
-    ser = serial.Serial(usb, 115200, timeout=0.2)
-    if ser.is_open:
-        print("open ok")
-        ser.flushInput()
-    else:
-        ser.open()
+    # password = 'radar'
+    # ch = pexpect.spawn('sudo chmod 777 {}'.format(usb))
+    # ch.sendline(password)
+    # print('set password ok')
+    #
+    # ser = serial.Serial(usb, 115200, timeout=0.2)
+    # if ser.is_open:
+    #     print("open ok")
+    #     ser.flushInput()
+    # else:
+    #     ser.open()
 
     app = QtWidgets.QApplication(sys.argv)
     myshow = mywindow()
     # 初始化UI界面并展示
     myshow.show()
 
-    _thread.start_new_thread(read, (ser, myshow))
-    _thread.start_new_thread(write, (robot_loc, ser))
-
+    # _thread.start_new_thread(read, (ser, myshow))
+    # _thread.start_new_thread(write, (robot_loc, ser))
 
     print("[INFO] loading model...")
     net = Detector(bytes("model/1/yolov3.cfg", encoding="utf-8"),
@@ -377,20 +410,60 @@ if __name__ == "__main__":
         if cam == 0:
             cap1 = cv2.VideoCapture("testdata/r.MOV")
             cap2 = cv2.VideoCapture("testdata/r.MOV")
-            if third_cam == "antimissile":
-                cap3 = cv2.VideoCapture("testdata/feibiao.MOV")
         else:
-            cap1 = HT_Camera()
-            cap2 = HT_Camera()  # TODO: how to distinguish two cameras hasn't been tested!!!!!!!!!
-            if third_cam == "antimissile":
-                cap3 = HT_Camera()
+            cap1 = cv2.VideoCapture("testdata/r.MOV")
+            cap2 = cv2.VideoCapture("testdata/r.MOV")
+            # cap1 = HT_Camera()
+            # cap2 = HT_Camera()  # TODO: how to distinguish two cameras hasn't been tested!!!!!!!!!
         r1, frame1 = cap1.read()
         r2, frame2 = cap2.read()
+        if recording_state:
+            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+            size = ()  # TODO:
+            writer3 = cv2.VideoWriter('recording/%s_3.avi' % str(time.strftime('%Y/%m/%d-%H')), fourcc, 20.0, size)
+            del fourcc, size
+
+        # intialize loc
+        cache, size1, size2 = init(frame1, frame2)  # assert(size1==frame1.shape)
+        cv2.namedWindow('show', cv2.WINDOW_NORMAL)
+
+        split_flag = False
+        frame1_split = 0
+        frame2_split = 0
+        xy_split = (0, 0)
+        img_split = frame1.copy()
+        cv2.namedWindow('split', cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback("split", on_EVENT_LBUTTONDOWN)
+        for i in range(2):
+            while not split_flag:
+                cv2.imshow("split", img_split)
+                cv2.waitKey(50)
+            frame1_split += xy_split[1]
+            print(xy_split)
+            cv2.imshow("split", img_split)
+            split_flag = False
+        frame1_split = int(frame1_split / 2)
+        img_split = frame2.copy()
+        for i in range(2):
+            while not split_flag:
+                cv2.imshow("split", img_split)
+                cv2.waitKey(50)
+            print(xy_split)
+            frame2_split += xy_split[1]
+            cv2.imshow("split", img_split)
+            split_flag = False
+        frame2_split = int(frame2_split / 2)
+        print(frame1_split)
+        print(frame2_split)
+        cv2.destroyWindow("split")
 
         if third_cam == "antimissile":
-            cap3 = cv2.VideoCapture("testdata/feibiao.MOV")
+            # cap3 = HT_Camera()
+            cap3 = cv2.VideoCapture('testdata/feibiao.MOV')
             r3_size = (960, 540)
             r3, current_frame = cap3.read()
+            while current_frame is None:
+                _, current_frame = cap3.read()
             current_frame = cv2.resize(current_frame, r3_size)
             previous_frame = current_frame
             cv2.namedWindow('missile', cv2.WINDOW_NORMAL)
@@ -405,15 +478,14 @@ if __name__ == "__main__":
                 del verify
             cv2.destroyWindow('missile')
 
-            missile = threading.Thread(target=missile_detection, args=(cap3, r3_size, missile_launcher, myshow))
+            if recording_state:
+                missile = threading.Thread(target=missile_detection, args=(cap3, r3_size, missile_launcher, myshow, writer3))
+            else:
+                missile = threading.Thread(target=missile_detection, args=(cap3, r3_size, missile_launcher, myshow))
+            missile.daemon = True
             missile.start()
 
-        # intialize loc
-        cache, size1, size2 = init(frame1, frame2)  # assert(size1==frame1.shape)
-        cv2.namedWindow('show', cv2.WINDOW_NORMAL)
-
-
-        print("="*30)
+        print("=" * 30)
         print("[INFO] Starting.")
         tic = 0
         while True:
@@ -618,7 +690,7 @@ if __name__ == "__main__":
                     cv2.putText(frame2, l, (startX, startY - 15),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 2)
             if not battle_mode:
-                fps = 1/(time.time()-t1)
+                fps = 1 / (time.time() - t1)
                 print(fps)
                 # cv2.moveWindow(cap, 40,30)
 
@@ -648,7 +720,8 @@ if __name__ == "__main__":
         else:
             del cap1, cap2  # TODO: need to be changed!!!!!!!!!!!!
     elif cam == 1:
-        cap = cv2.VideoCapture(0)
+        # cap = cv2.VideoCapture(0)
+        pass
     else:
         cam = int(input("Incorrect num of camera! Please try again:"))
 

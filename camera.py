@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from . import mvsdk
+from _sdk import mvsdk
 
 
 class HT_Camera:
@@ -83,6 +83,8 @@ if __name__ == '__main__':
     cap = HT_Camera()
     while True:
         _, frame = cap.read()
+        while frame is None:
+            _, frame = cap.read()
         cv2.imshow('1', frame)
         if cv2.waitKey(10) & 0xff == ord('q'):
             break
