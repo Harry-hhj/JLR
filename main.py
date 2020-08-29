@@ -4,9 +4,10 @@ from pydarknet import Detector, Image
 import cv2
 import re
 import numpy as np
+import math
 import dlib
 from PyQt5 import QtWidgets
-from camera import HT_Camera
+from camera import HT_Camera, ZED_Camera, ZED_camera_matrix1
 import threading
 import time
 
@@ -16,21 +17,25 @@ import serial
 import _thread
 import pexpect
 
-from serial_program import *
+from UART import *
 
+# TODO: 代购清单: 2m接长线*2,1m接长线*1,HDMI转VGA接口*1
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 |                       参数调整区域                            |
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 usb: str = '/dev/ttyUSB0'
 enermy: int = 0  # 0:red, 1:blue
-cam: int = 2  # 0:two input videos, 1:one camera plugin, 2:two cameras plugin
+cam: int = 2 #TODO  # 0:two input videos, 1:one camera plugin, 2:two cameras plugin
 third_cam = "antimissile"  # "":no extra cam, "antimissile":反导, "lobshot":吊射
 third_cam_type = ""
 f_show: int = 0  # 0: frame1, 1: frame2, 2: extra_frame
 loc = {"base_b": [], "base_r": [], "watcher-b": [], "watcher-r": []}
 
 battle_mode: bool = False  # TODO: automatically set some value, ready for battle #not implement yet
-recording_state: bool = False
+recording_state: bool = True
+
+camera_matrix1 = ZED_camera_matrix1
+euler_angle1 = [0, 0, 0]
 
 robot_loc = Game_data_define.robot_location()
 
@@ -201,6 +206,7 @@ def car_armor_classify(results, frame):
             continue
         if 'base' in str(cat.decode("utf-8")):
             pass
+    '''
     for i in range(len(car)):
         if flag[i]:
             continue
@@ -238,6 +244,7 @@ def car_armor_classify(results, frame):
         cv2.imshow('test2', result)
         cv2.waitKey(0)
         # TODO:
+    '''
     del car_pos_mi
     del car_pos_ma
     return car
@@ -347,17 +354,20 @@ def missile_detection(cap, size, missile_launcher, myshow, writer=None):
         if not battle_mode:
             cv2.imshow('fgmask', current_frame_copy)
             cv2.imshow('frame diff ', frame_diff)
-        if f_show != 2:
-            myshow.set_image(current_frame_copy, "sub_demo2")
+        if cam == 0 or cam == 2:
+            if f_show != 2:
+                myshow.set_image(current_frame_copy, "sub_demo2")
+            else:
+                if not battle_mode:
+                    cv2.imshow('show', current_frame_copy)
+                myshow.set_image(current_frame_copy, "main_demo")
         else:
-            if not battle_mode:
-                cv2.imshow('show', current_frame_copy)
-            myshow.set_image(current_frame_copy, "main_demo")
+            myshow.set_image(current_frame_copy, "sub_demo2")
         if recording_state and writer is not None:
             writer.write(current_frame)
 
 
-def on_EVENT_LBUTTONDOWN(event, x, y, flags, param):
+def on_EVENT_LBUTTONDOWN_split(event, x, y, flags, param):
     global xy_split, img_split, split_flag
     if event == cv2.EVENT_LBUTTONDOWN:
         xy = '%d, %d' % (x, y)
@@ -366,6 +376,64 @@ def on_EVENT_LBUTTONDOWN(event, x, y, flags, param):
         cv2.putText(img_split, xy, (x, y), cv2.FONT_HERSHEY_PLAIN,
                     1.0, (0,0,0), thickness = 1)
         split_flag = True
+
+
+def eulerAnglesToRotationMatrix(theta):
+    """
+    Calculates Rotation Matrix given euler angles.
+
+    [yaw, pitch, raw] -> ndarray(3x3)
+    :param theta: [yaw, pitch, raw] or (yaw, pitch, raw
+    :return: RotationMatrix
+    """
+    assert(len(theta) == 3)
+    R_x = np.array([[1, 0, 0],
+                    [0, math.cos(theta[0]), -math.sin(theta[0])],
+                    [0, math.sin(theta[0]), math.cos(theta[0])]])
+
+    R_y = np.array([[math.cos(theta[1]), 0, math.sin(theta[1])],
+                    [0, 1, 0],
+                    [-math.sin(theta[1]), 0, math.cos(theta[1])]])
+
+    R_z = np.array([[math.cos(theta[2]), -math.sin(theta[2]), 0],
+                    [math.sin(theta[2]), math.cos(theta[2]), 0],
+                    [0, 0, 1]])
+
+    R = np.dot(R_z, np.dot(R_y, R_x))
+
+    return R
+
+
+def get_depth_mean(dp, center_x, center_y, w, h):
+    dpt = np.nanmean(dp[int(center_x - w / 2): int(center_x + w / 2), int(center_y - h / 2):int(center_y + h / 2)])
+    if np.isnan(dpt):
+        return 0
+    else:
+        return dpt
+
+
+def transfer_pixel2world(pos, camera_matrix, depth_map):
+    """
+    将二维像素点的坐标转换成世界坐标系,需要设置三个欧拉角
+    :param pos:
+    :param camera_matrix:
+    :param depth_map:
+    :return:
+    """
+    R = eulerAnglesToRotationMatrix(pos)
+    uv1 = []
+    for i in range(len(pos)):
+        uv1.append([pos[0], pos[1], 1])
+    uv1 = np.array(uv1).T
+    xyz_c = np.dot(np.linalg.inv(camera_matrix), uv1)
+    dpt = []
+    for i in range(len(pos)):
+        dpt.append(get_depth_mean(depth_map, pos[0], int(pos[1]+h/2), int(0.8*w), int(0.4*h)))
+    dpt = np.array(dpt)
+    proportion = dpt / np.sqrt(np.sum(xyz_c**2, axis=0))
+    xyz_c_new = xyz_c * proportion
+    xyz = np.dot(R, xyz_c_new).T.tolist()
+    return xyz
 
 
 if __name__ == "__main__":
@@ -390,12 +458,12 @@ if __name__ == "__main__":
     # _thread.start_new_thread(write, (robot_loc, ser))
 
     print("[INFO] loading model...")
-    net = Detector(bytes("model/1/yolov3.cfg", encoding="utf-8"),
-                   bytes("model/1/yolov3_35000.weights", encoding="utf-8"), 0,
-                   bytes("model/1/coco.data", encoding="utf-8"))
-    # net = Detector(bytes("model/notuse2/yolov3.cfg", encoding="utf-8"),
-    #               bytes("model/notuse2/yolov3_40000.weights", encoding="utf-8"), 0,
-    #               bytes("model/notuse2/voc.data", encoding="utf-8"))
+    # net = Detector(bytes("model/1/yolov3.cfg", encoding="utf-8"),
+    #                bytes("model/1/yolov3_35000.weights", encoding="utf-8"), 0,
+    #                bytes("model/1/coco.data", encoding="utf-8"))
+    net = Detector(bytes("model/2/yolov3.cfg", encoding="utf-8"),
+                  bytes("model/2/yolov3_30000.weights", encoding="utf-8"), 0,
+                  bytes("model/2/coco.data", encoding="utf-8"))
     # net = Detector(bytes("model/tmp/yolov3-voc.cfg", encoding="utf-8"),
     #               bytes("model/tmp/yolov3-voc_50000.weights", encoding="utf-8"), 0,
     #               bytes("model/tmp/voc.data", encoding="utf-8"))
@@ -411,15 +479,12 @@ if __name__ == "__main__":
             cap1 = cv2.VideoCapture("testdata/r.MOV")
             cap2 = cv2.VideoCapture("testdata/r.MOV")
         else:
-            cap1 = cv2.VideoCapture("testdata/r.MOV")
-            cap2 = cv2.VideoCapture("testdata/r.MOV")
-            # cap1 = HT_Camera()
-            # cap2 = HT_Camera()  # TODO: how to distinguish two cameras hasn't been tested!!!!!!!!!
+            cap1 = ZED_Camera()
         r1, frame1 = cap1.read()
         r2, frame2 = cap2.read()
         if recording_state:
             fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            size = ()  # TODO:
+            size = (1920, 1080)  # TODO:
             writer3 = cv2.VideoWriter('recording/%s_3.avi' % str(time.strftime('%Y/%m/%d-%H')), fourcc, 20.0, size)
             del fourcc, size
 
@@ -433,7 +498,7 @@ if __name__ == "__main__":
         xy_split = (0, 0)
         img_split = frame1.copy()
         cv2.namedWindow('split', cv2.WINDOW_NORMAL)
-        cv2.setMouseCallback("split", on_EVENT_LBUTTONDOWN)
+        cv2.setMouseCallback("split", on_EVENT_LBUTTONDOWN_split)
         for i in range(2):
             while not split_flag:
                 cv2.imshow("split", img_split)
@@ -495,16 +560,17 @@ if __name__ == "__main__":
             if frame1 is None or frame2 is None:
                 break
             # 预处理操作
-            rgb1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
+            rgb = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
             rgb2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
-            if time.time() - tic > 5 or len(trackers1) == 0 or len(trackers2) == 0:
+            if time.time() - tic > 5:
+            # if time.time() - tic > 5 or len(trackers1) == 0 or len(trackers2) == 0:
                 # print("detect")
                 trackers1 = []
                 labels1 = []
                 trackers2 = []
                 labels2 = []
                 dark_frame = Image(frame1)
-                results1 = net.detect(dark_frame)
+                results = net.detect(dark_frame)
                 dark_frame = Image(frame2)
                 results2 = net.detect(dark_frame)
                 del dark_frame
@@ -568,15 +634,17 @@ if __name__ == "__main__":
                         for i in index:
                             print("frame2 " + str(cache["rec2"][i]) + " detected enermy!")
                 '''
-                cars = car_armor_classify(results1, frame1)
+                cars = car_armor_classify(results, frame1)
                 for car in cars:
                     x, y, w, h, cat = car
+                    if y < frame1_split:
+                        continue
                     (startX, startY, endX, endY) = (int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2))
                     # 使用dlib来进行目标追踪
                     # http://dlib.net/python/index.html#dlib.correlation_tracker
                     t = dlib.correlation_tracker()
                     rect = dlib.rectangle(int(startX), int(startY), int(endX), int(endY))
-                    t.start_track(rgb1, rect)
+                    t.start_track(rgb, rect)
 
                     # 保存结果
                     labels1.append(car[4])
@@ -614,6 +682,8 @@ if __name__ == "__main__":
                 cars = car_armor_classify(results2, frame2)
                 for car in cars:
                     x, y, w, h, cat = car
+                    if y > frame2_split:
+                        continue
                     (startX, startY, endX, endY) = (int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2))
                     # 使用dlib来进行目标追踪
                     # http://dlib.net/python/index.html#dlib.correlation_tracker
@@ -660,7 +730,7 @@ if __name__ == "__main__":
                 # 每一个追踪器都要进行更新
                 # toc = time.time()
                 for (t, l) in zip(trackers1, labels1):
-                    t.update(rgb1)
+                    t.update(rgb)
                     pos = t.get_position()
 
                     # 得到位置
@@ -714,16 +784,163 @@ if __name__ == "__main__":
                 set_value(0, (f_show + 1) % 3)
             elif k == 0xFF & ord("p"):
                 cv2.waitKey(0)
-        if cam == 0:
-            cap1.release()
-            cap2.release()
-        else:
-            del cap1, cap2  # TODO: need to be changed!!!!!!!!!!!!
+        cap1.release()
+        cap2.release()
     elif cam == 1:
-        # cap = cv2.VideoCapture(0)
-        pass
+        # cap2 = HT_Camera()
+        cap = ZED_Camera(record=True, save_path='20200828_2')
+        # r2, frame2 = cap2.read()
+        # while frame2 is None:
+        #     _, frame2 = cap2.read()
+        # frame2 = cv2.resize(frame2, (1920, 1080))
+        r, frame, _ = cap.read()
+        frame = cv2.resize(frame, (1920, 1080))  # TODO
+        if recording_state:
+            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+            size = (1920, 1080)  # TODO:
+            writer3 = cv2.VideoWriter('./20200828_3.avi', fourcc, 15.0, size)
+            del fourcc, size
+            print(111)
+
+        # intialize loc
+        cache, size = init(frame)  # assert(size1==frame1.shape)
+        cv2.namedWindow('show', cv2.WINDOW_NORMAL)
+
+        if third_cam == "antimissile":
+            cap3 = HT_Camera()
+            r3_size = (960, 540)
+            r3, current_frame = cap3.read()
+            while current_frame is None:
+                _, current_frame = cap3.read()
+            current_frame = cv2.resize(current_frame, r3_size)
+            previous_frame = current_frame
+            cv2.namedWindow('missile', cv2.WINDOW_NORMAL)
+            f = current_frame.copy()
+            missile_launcher = cv2.selectROI('missile', f, False)
+            cv2.rectangle(f, (int(missile_launcher[0]), int(missile_launcher[1])),
+                          (int(missile_launcher[0] + missile_launcher[2]),
+                           int(missile_launcher[1] + missile_launcher[3])), (0, 255, 0), 2)
+            verify = cv2.selectROI('missile', f, False)
+            if verify != (0, 0, 0, 0):
+                missile_launcher = verify
+                del verify
+            cv2.destroyWindow('missile')
+
+            if recording_state:
+                missile = threading.Thread(target=missile_detection,
+                                           args=(cap3, r3_size, missile_launcher, myshow, writer3))
+            else:
+                missile = threading.Thread(target=missile_detection, args=(cap3, r3_size, missile_launcher, myshow))
+            missile.daemon = True
+            missile.start()
+
+        print("=" * 30)
+        print("[INFO] Starting.")
+        tic = 0
+        while True:
+            t1 = time.time()
+            # r2, frame2 = cap2.read()
+            # frame2 = cv2.resize(frame2, (1920, 1080))
+            # if recording_state:
+            #     writer3.write(frame2)
+            r, frame, _ = cap.read()
+            frame = cv2.resize(frame, (1920, 1080))
+            # frame = cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
+            # 预处理操作
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if time.time() - tic > 5 or len(trackers) == 0:
+                # if time.time() - tic > 5 or len(trackers1) == 0 or len(trackers2) == 0:
+                print("detect")
+                trackers = []
+                labels = []
+                dark_frame = Image(frame)
+                results = net.detect(dark_frame)
+                del dark_frame
+
+                assert (size == frame.shape)
+                cars = car_armor_classify(results, frame)
+                for car in cars:
+                    x, y, w, h, cat = car
+                    (startX, startY, endX, endY) = (int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2))
+                    # 使用dlib来进行目标追踪
+                    # http://dlib.net/python/index.html#dlib.correlation_tracker
+                    t = dlib.correlation_tracker()
+                    rect = dlib.rectangle(int(startX), int(startY), int(endX), int(endY))
+                    t.start_track(rgb, rect)
+
+                    # 保存结果
+                    labels.append(car[4])
+                    trackers.append(t)
+                    if enermy == 0 and 'blue' in car[4] or enermy == 1 and 'red' in car[4]:
+                        continue
+                    # x, y, w, h, cat = car
+                    mi_ = [[int(x + w / 2)], [int(y + h / 2)]]
+                    ma_ = [[int(x - w / 2)], [int(y - h / 2)]]
+                    mi_ = np.array(mi_)
+                    ma_ = np.array(ma_)
+                    assert (mi_.shape == (2, 1))
+                    assert (ma_.shape == (2, 1))
+                    mi_use = np.minimum(mi_, cache["mi1"])
+                    ma_use = np.maximum(ma_, cache["ma1"])
+                    assert (mi_use.shape == (2, len(cache["rec1"])))
+                    assert (ma_use.shape == (2, len(cache["rec1"])))
+                    nu = mi_use - ma_use
+                    nu[nu < 0] = 0
+                    nu = np.product(nu, axis=0, keepdims=True)
+                    nu = (nu / (w * h)).squeeze()
+                    index = np.argwhere(nu > 0.7).squeeze(axis=1)
+                    for i in index:
+                        print("frame1 " + str(cache["rec1"][i]) + " detected enermy!")
+                    if car[4] == "":
+                        cv2.rectangle(frame, (int(x - w / 2), int(y - h / 2)), (int(x + w / 2), int(y + h / 2)),
+                                      (255, 0, 0))
+                        cv2.putText(frame, "Car of unkown type", (int(x), int(y)), cv2.FONT_HERSHEY_COMPLEX,
+                                    1, (255, 255, 0))
+                    else:
+                        cv2.rectangle(frame, (int(x - w / 2), int(y - h / 2)), (int(x + w / 2), int(y + h / 2)),
+                                      (255, 0, 0))
+                        cv2.putText(frame, "Car with " + cat, (int(x), int(y)), cv2.FONT_HERSHEY_COMPLEX,
+                                    1, (255, 255, 0))
+                tic = time.time()
+            else:
+                # print("genzong")
+                # 每一个追踪器都要进行更新
+                # toc = time.time()
+                for (t, l) in zip(trackers, labels):
+                    t.update(rgb)
+                    pos = t.get_position()
+
+                    # 得到位置
+                    startX = int(pos.left())
+                    startY = int(pos.top())
+                    endX = int(pos.right())
+                    endY = int(pos.bottom())
+
+                    # 画出来
+                    cv2.rectangle(frame, (startX, startY), (endX, endY),
+                                  (0, 255, 0), 2)
+                    cv2.putText(frame, l, (startX, startY - 15),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 2)
+            if not battle_mode:
+                fps = 1 / (time.time() - t1)
+                print(fps)
+                # cv2.moveWindow(cap, 40,30)
+
+            cv2.imshow('show', cv2.resize(frame, (1280, 720)))
+            # cv2.imshow('1', cv2.resize(frame2, (1280, 720)))
+            myshow.set_image(cv2.resize(frame, (1280, 720)), "main_demo")
+            k = cv2.waitKey(10)
+            if k == 0xff & ord("q"):
+                break
+            elif k == 0xff & ord("a"):
+                set_value(0, (f_show + 1) % 3)
+            elif k == 0xff & ord("p"):
+                cv2.waitKey(0)
+        cap.release()
+        if recording_state:
+            writer3.release()
     else:
-        cam = int(input("Incorrect num of camera! Please try again:"))
+        cam = int(input("Incorrect num of camera! Please try again:(Press any key to exit)"))
 
     print("=" * 30)
     print("[INFO] Finished.")
