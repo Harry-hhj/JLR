@@ -7,7 +7,7 @@ import numpy as np
 import math
 import dlib
 from PyQt5 import QtWidgets
-from camera import HT_Camera, ZED_Camera, ZED_camera_matrix1
+from camera import HT_Camera, ZED_Camera, ZED_camera_matrix1, ZED_camera_matrix2
 import threading
 import time
 
@@ -36,6 +36,11 @@ recording_state: bool = True
 
 camera_matrix1 = ZED_camera_matrix1
 euler_angle1 = [0, 0, 0]
+transition_matrix1 = np.array([[0],[0],[0]])
+camera_matrix2 = ZED_camera_matrix2
+euler_angle2 = [0, 0, 0]
+transition_matrix2 = np.array([[0],[0],[0]])
+
 
 robot_loc = Game_data_define.robot_location()
 
@@ -301,7 +306,11 @@ def set_value(value_index, value):
         return False
 
 
-def missile_detection(cap, size, missile_launcher, myshow, writer=None):
+def missile_detection(cap, size, missile_launcher, myshow):
+    if recording_state:
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        save_size = (1920, 1080)  # TODO:
+        writer = cv2.VideoWriter('20200829_3.avi', fourcc, 20.0, save_size)
     _, current_frame = cap.read()
     if current_frame is None:
         if cam == 0:
@@ -364,7 +373,7 @@ def missile_detection(cap, size, missile_launcher, myshow, writer=None):
         else:
             myshow.set_image(current_frame_copy, "sub_demo2")
         if recording_state and writer is not None:
-            writer.write(current_frame)
+            writer.write(cv2.resize(current_frame, save_size, cv2.INTER_LINEAR))
 
 
 def on_EVENT_LBUTTONDOWN_split(event, x, y, flags, param):
@@ -412,7 +421,7 @@ def get_depth_mean(dp, center_x, center_y, w, h):
         return dpt
 
 
-def transfer_pixel2world(pos, camera_matrix, depth_map):
+def transfer_pixel2world(pos, camera_matrix, eulerAngles, transition_matrix, depth_map):
     """
     将二维像素点的坐标转换成世界坐标系,需要设置三个欧拉角
     :param pos:
@@ -420,20 +429,21 @@ def transfer_pixel2world(pos, camera_matrix, depth_map):
     :param depth_map:
     :return:
     """
-    R = eulerAnglesToRotationMatrix(pos)
+    if len(pos) == 0:
+        return []
+    R = eulerAnglesToRotationMatrix(eulerAngles)
     uv1 = []
-    for i in range(len(pos)):
-        uv1.append([pos[0], pos[1], 1])
-    uv1 = np.array(uv1).T
-    xyz_c = np.dot(np.linalg.inv(camera_matrix), uv1)
     dpt = []
     for i in range(len(pos)):
-        dpt.append(get_depth_mean(depth_map, pos[0], int(pos[1]+h/2), int(0.8*w), int(0.4*h)))
-    dpt = np.array(dpt)
-    proportion = dpt / np.sqrt(np.sum(xyz_c**2, axis=0))
+        uv1.append([pos[i][0], pos[i][1], 1])
+        dpt.append(get_depth_mean(depth_map, int(pos[i][0]), int(pos[i][1] + pos[i][3] / 4), int(0.8 * pos[i][2]), int(0.4 * pos[i][3])))
+    uv1 = np.array(uv1).T
+    xyz_c = np.dot(np.linalg.inv(camera_matrix), uv1)
+    dpt = np.array(dpt).reshape((1,-1))
+    proportion = dpt / np.sqrt(np.sum(xyz_c**2, axis=0, keepdims=True))
     xyz_c_new = xyz_c * proportion
-    xyz = np.dot(R, xyz_c_new).T.tolist()
-    return xyz
+    xyz = np.dot(np.linalg.inv(R), xyz_c_new).T - transition_matrix
+    return xyz.toslit()
 
 
 if __name__ == "__main__":
@@ -479,14 +489,12 @@ if __name__ == "__main__":
             cap1 = cv2.VideoCapture("testdata/r.MOV")
             cap2 = cv2.VideoCapture("testdata/r.MOV")
         else:
-            cap1 = ZED_Camera()
-        r1, frame1 = cap1.read()
-        r2, frame2 = cap2.read()
-        if recording_state:
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            size = (1920, 1080)  # TODO:
-            writer3 = cv2.VideoWriter('recording/%s_3.avi' % str(time.strftime('%Y/%m/%d-%H')), fourcc, 20.0, size)
-            del fourcc, size
+            cap1 = ZED_Camera(serial_number=20617185)
+            cap2 = ZED_Camera(serial_number=)
+        # r1, frame1 = cap1.read()
+        # r2, frame2 = cap2.read()
+        r1, frame1, depth_map1 = cap1.read()
+        r2, frame2, depth_map2 = cap2.read()
 
         # intialize loc
         cache, size1, size2 = init(frame1, frame2)  # assert(size1==frame1.shape)
@@ -543,10 +551,7 @@ if __name__ == "__main__":
                 del verify
             cv2.destroyWindow('missile')
 
-            if recording_state:
-                missile = threading.Thread(target=missile_detection, args=(cap3, r3_size, missile_launcher, myshow, writer3))
-            else:
-                missile = threading.Thread(target=missile_detection, args=(cap3, r3_size, missile_launcher, myshow))
+            missile = threading.Thread(target=missile_detection, args=(cap3, r3_size, missile_launcher, myshow))
             missile.daemon = True
             missile.start()
 
@@ -555,8 +560,8 @@ if __name__ == "__main__":
         tic = 0
         while True:
             t1 = time.time()
-            r1, frame1 = cap1.read()
-            r2, frame2 = cap2.read()
+            r1, frame1, depth_map1 = cap1.read()
+            r2, frame2, depth_map2 = cap2.read()
             if frame1 is None or frame2 is None:
                 break
             # 预处理操作
@@ -635,8 +640,10 @@ if __name__ == "__main__":
                             print("frame2 " + str(cache["rec2"][i]) + " detected enermy!")
                 '''
                 cars = car_armor_classify(results, frame1)
+                pos1 = []
                 for car in cars:
                     x, y, w, h, cat = car
+                    pos1.append((x, y, w, h))
                     if y < frame1_split:
                         continue
                     (startX, startY, endX, endY) = (int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2))
@@ -679,9 +686,12 @@ if __name__ == "__main__":
                                       (255, 0, 0))
                         cv2.putText(frame1, "Car with " + cat, (int(x), int(y)), cv2.FONT_HERSHEY_COMPLEX,
                                     1, (255, 255, 0))
+                pos1 = transfer_pixel2world(pos1, camera_matrix1, euler_angle1, transition_matrix1, depth_map1)
+                pos2 = []
                 cars = car_armor_classify(results2, frame2)
                 for car in cars:
                     x, y, w, h, cat = car
+                    pos.append((x, y, w, h))
                     if y > frame2_split:
                         continue
                     (startX, startY, endX, endY) = (int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2))
@@ -724,11 +734,13 @@ if __name__ == "__main__":
                                       (255, 0, 0))
                         cv2.putText(frame2, "Car with " + cat, (int(x), int(y)), cv2.FONT_HERSHEY_COMPLEX,
                                     1, (255, 255, 0))
+                pos1 = transfer_pixel2world(pos2, camera_matrix1, euler_angle2, transition_matrix2, depth_map1)
                 tic = time.time()
             else:
                 # print("genzong")
                 # 每一个追踪器都要进行更新
                 # toc = time.time()
+                pos1 = []
                 for (t, l) in zip(trackers1, labels1):
                     t.update(rgb)
                     pos = t.get_position()
@@ -738,12 +750,15 @@ if __name__ == "__main__":
                     startY = int(pos.top())
                     endX = int(pos.right())
                     endY = int(pos.bottom())
+                    pos1.append((int((startX+endX)/2), int((startY+endY)/2), int(endX-endY), int(endY-startY)))
 
                     # 画出来
                     cv2.rectangle(frame1, (startX, startY), (endX, endY),
                                   (0, 255, 0), 2)
                     cv2.putText(frame1, l, (startX, startY - 15),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 2)
+                pos1 = transfer_pixel2world(pos1, camera_matrix1, euler_angle1, transition_matrix1, depth_map1)
+                pos2 = []
                 for (t, l) in zip(trackers2, labels2):
                     t.update(rgb2)
                     pos = t.get_position()
@@ -753,12 +768,14 @@ if __name__ == "__main__":
                     startY = int(pos.top())
                     endX = int(pos.right())
                     endY = int(pos.bottom())
+                    pos2.append((int((startX + endX) / 2), int((startY + endY) / 2), int(endX - endY), int(endY - startY)))
 
                     # 画出来
                     cv2.rectangle(frame2, (startX, startY), (endX, endY),
                                   (0, 255, 0), 2)
                     cv2.putText(frame2, l, (startX, startY - 15),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 2)
+                pos2 = transfer_pixel2world(pos2, camera_matrix2, euler_angle2, transition_matrix2, depth_map2)
             if not battle_mode:
                 fps = 1 / (time.time() - t1)
                 print(fps)

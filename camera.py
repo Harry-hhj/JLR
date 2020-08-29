@@ -1,8 +1,12 @@
 import numpy as np
 from _sdk import mvsdk
 import pyzed.sl as sl
+import sys
 
 ZED_camera_matrix1 = np.array([[1114.1804893712708, 0.0, 1074.2415297217708],
+                              [0.0, 1113.4568392254073, 608.6477877664104],
+                              [0.0, 0.0, 1.0]])
+ZED_camera_matrix2 = np.array([[1114.1804893712708, 0.0, 1074.2415297217708],
                               [0.0, 1113.4568392254073, 608.6477877664104],
                               [0.0, 0.0, 1.0]])
 
@@ -86,7 +90,7 @@ class HT_Camera:
 
 
 class ZED_Camera:
-    def __init__(self, serial_number=0, resolution='2K', depth_minimum=-1, depth_max=30000, accuracy='milimeter', record=False,
+    def __init__(self, serial_number=0, resolution='2K', depth_minimum=-1, depth_max=30000, accuracy='millimeter', record=False,
                  save_path='myVideoFile'):
         """
 
@@ -117,10 +121,10 @@ class ZED_Camera:
         err = self.zed.open(self.init_params)
         if err != sl.ERROR_CODE.SUCCESS:
             print(repr(err))
-            RuntimeError('ZED_Camera_{} failed to open.'.format(cam_id))
+            sys.exit(-1)
 
         # TODO: jiemian
-        self.zed.set_camera_settings(sl.VIDEO_SETTINGS.EXPOSURE, 8)
+        self.zed.set_camera_settings(sl.VIDEO_SETTINGS.EXPOSURE, 20)
         self.zed.set_camera_settings(sl.VIDEO_SETTINGS.CONTRAST, 3)
         # self.zed.set_camera_settings(sl.VIDEO_SETTINGS.GAIN, 1)
         self.zed.set_camera_settings(sl.VIDEO_SETTINGS.AEC_AGC, 0)
@@ -136,7 +140,7 @@ class ZED_Camera:
             err = self.zed.enable_recording(record_params)
             if err != sl.ERROR_CODE.SUCCESS:
                 print(repr(err))
-                exit(-1)
+                sys.exit(-1)
 
     def set_param(self, var, num):
         if var == 'EXPOSURE':
@@ -200,6 +204,7 @@ class ZED_Camera:
 
 
 if __name__ == '__main__':
+    import cv2
     '''
     # test for HT
     cap = HT_Camera()
@@ -213,7 +218,6 @@ if __name__ == '__main__':
     cap.release()
     cv2.destroyAllWindows()
     '''
-    import cv2
 
     cap = ZED_Camera(record=True)
     while True:
